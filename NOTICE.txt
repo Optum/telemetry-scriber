@@ -1,9 +1,9 @@
-<Insert Project Name Here>
+Telemetry::Scriber
 Copyright 2021 Optum
 
 Project Description:
 ====================
-<Short description of your project>
+A gem that connects to the rabbitmq tier of telemetry via Telemetry::AMQP and writes the data to InfluxDB via line protocol
 
 Author(s):
-<List the names and GitHub IDs of the original project authors>
+Esity
