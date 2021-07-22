@@ -36,5 +36,4 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'telemetry-amqp'
   spec.add_dependency 'telemetry-logger'
   spec.add_dependency 'telemetry-metrics-parser'
-  spec.add_dependency 'telemetry-pki'
 end

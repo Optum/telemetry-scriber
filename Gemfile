@@ -8,7 +8,3 @@ group :test do
   gem 'rubocop'
   gem 'simplecov'
 end
-
-gem 'telemetry-amqp', path: '../telemetry-amqp'
-gem 'telemetry-logger', path: '../telemetry-logger'
-gem 'telemetry-pki', path: '../telemetry-pki'

@@ -7,6 +7,7 @@ module Telemetry
   module Scriber
     module Writer
       extend Telemetry::Scriber::Writer::Defaults
+
       class << self
         def healthy?
           connection.get('/health').success?
@@ -36,6 +37,7 @@ module Telemetry
           [port, 8443, 443, 8080, 8086].each do |port_test|
             next unless Faraday.new("https://#{host}:#{port_test}", { ssl: ssl_options }) do |connection|
               connection.options.timeout = 2
+              connection.options.open_timeout = 1
             end.get('/ping').success?
 
             @port = port_test
@@ -52,24 +54,36 @@ module Telemetry
         end
 
         def send_metrics(payload, database = 'telegraf')
+          create_database(database) unless database_registered? database
+
           results = connection.post("/write?db=#{database}", payload) do |req|
-            req.options.timeout = write_timeout + open_timeout
+            req.options.timeout = open_timeout + write_timeout
             req.options.open_timeout = open_timeout
             req.options.write_timeout = write_timeout
           end
 
-          return results if results.success?
+          return results if !results.nil? || results.status > 300
 
-          Telemetry::Logger.warn "Failed to write to database #{database} with status #{results.status}"
-          Telemetry::Logger.warn results.body
-
-          queue_bad_metrics(payload, database)
+          Telemetry::Scriber::Publisher.publish_error(results, payload, database)
+          false
         end
 
-        def queue_bad_metrics(payload, database = 'telegraf')
-          puts database
-          puts payload
-          false
+        def create_database(name)
+          Telemetry::Logger.info "Attempting to automatically create database #{name.downcase}"
+          return false unless connection.post("/query?q=CREATE DATABASE #{name.downcase}").success?
+
+          @databases.push name unless databases.include? name
+
+          Telemetry::Logger.info "Successfully created #{name} database"
+          true
+        end
+
+        def database_registered?(name)
+          databases.include? name
+        end
+
+        def databases
+          @databases ||= []
         end
       end
     end

@@ -1,23 +1,25 @@
 #!/usr/bin/env ruby
 
+require 'telemetry/logger'
 require 'telemetry/scriber'
-
-Telemetry::Scriber.bootstrap
 
 trap('SIGTERM') { @quit = true }
 trap('SIGHUP') { @quit = true }
 trap('SIGINT') { @quit = true }
 
+Telemetry::Scriber.bootstrap
+Telemetry::Scriber.start_reader
+
 @quit = false
+
 until @quit
   begin
-    Telemetry::Scriber.conditional_flush
+    sleep(0.1) unless Telemetry::Scriber.flush
   rescue StandardError => e
-    Telemetry::Logger.error e.message
-    Telemetry::Logger.error e.backtrace[0..5]
+    Telemetry::Logger.error "#{e.class}: #{e.message}"
+    Telemetry::Logger.error e.backtrace
     sleep 1
   end
-  sleep(0.08)
 end
 
 Telemetry::Scriber.stop

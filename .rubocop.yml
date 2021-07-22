@@ -11,9 +11,9 @@ Metrics/BlockLength:
 Metrics/CyclomaticComplexity:
   Max: 10
 Metrics/PerceivedComplexity:
-  Max: 10
+  Max: 13
 Metrics/AbcSize:
-  Max: 30
+  Max: 50
 Style/Documentation:
   Enabled: false
 AllCops:

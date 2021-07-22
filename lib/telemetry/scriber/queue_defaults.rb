@@ -9,6 +9,10 @@ module Telemetry
         @opts ||= { queue_defaults: {} }
       end
 
+      def queue_prefix
+        opts[:queue_prefix] || ENV["#{env_key}.queue_prefix"] || 'influxdb.'
+      end
+
       def queue_name
         opts[:queue_name] || ENV["#{env_key}.queue_name"] || hostname.downcase
       end
@@ -18,7 +22,7 @@ module Telemetry
       end
 
       def x_max_in_memory_bytes
-        opts[:queue_defaults][:max_in_memory_bytes] || ENV["#{env_key}.queue.maxinmemorybytes"] || 104_857_600
+        opts[:queue_defaults][:max_in_memory_bytes] || ENV["#{env_key}.queue.maxinmemorybytes"] || 1_048_576_000
       end
 
       def x_max_in_memory_length
@@ -38,20 +42,24 @@ module Telemetry
       end
 
       def x_max_length_bytes
-        opts[:queue_defaults][:max_length_bytes] || ENV["#{env_key}.queue.x"] || 1_073_741_824
+        opts[:queue_defaults][:max_length_bytes] || ENV["#{env_key}.queue.x"] || 10_073_741_824
       end
 
       def x_max_length
-        opts[:queue_defaults][:max_length] || ENV["#{env_key}.queue.maxlength"] || 10_000
+        opts[:queue_defaults][:max_length] || ENV["#{env_key}.queue.maxlength"] || 1000
       end
 
       def x_expires
-        opts[:queue_defaults][:expires] || ENV["#{env_key}.queue.expires"] || 60_000
+        opts[:queue_defaults][:expires] || ENV["#{env_key}.queue.expires"] || 3_600_000
+      end
+
+      def queue_durable
+        true
       end
 
       def queue_defaults
         {
-          # 'x-expires': x_expires,
+          'x-expires': x_expires,
           'x-max-length': x_max_length,
           'x-max-length-bytes': x_max_length_bytes,
           'x-delivery-limit': x_delivery_limit,

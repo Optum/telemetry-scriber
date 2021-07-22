@@ -42,7 +42,7 @@ module Telemetry
                          elsif ENV.key? "#{env_key}.writer.pool_size"
                            ENV["#{env_key}.writer.pool_size"].to_i
                          else
-                           2
+                           8
                          end
         end
 

@@ -41,12 +41,24 @@ module Telemetry
                            end
       end
 
-      def compress(string)
-        deflate.deflate(string)
+      def use_ractor?
+        @use_ractor ||= RUBY_VERSION[0].to_i >= 3
       end
 
-      def decompress(payload)
-        inflate.inflate(payload)
+      def compress(string, use_ractors: true, **)
+        if use_ractors && use_ractor?
+          Ractor.new(string) { |msg| ::Zlib::Deflate.new.deflate(msg) }
+        else
+          ::Zlib::Deflate.new(default_level, default_window_bits, default_mem_level).deflate(string)
+        end
+      end
+
+      def decompress(payload, use_ractors: true, **)
+        if use_ractors && use_ractor?
+          Ractor.new(payload) { |msg| ::Zlib::Inflate.new(Zlib::MAX_WBITS + 32).inflate(msg) }.take
+        else
+          ::Zlib::Inflate.new(Zlib::MAX_WBITS + 32).inflate(payload)
+        end
       end
 
       def deflate(level: default_level, window_bits: default_window_bits, mem_level: default_mem_level)

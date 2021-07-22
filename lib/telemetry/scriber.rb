@@ -3,77 +3,87 @@ ENV['telemetry.scriber.writer.port'] = '8080'
 ENV['telemetry.scriber.writer.use_ssl'] = 'true'
 
 require 'telemetry/logger'
+
 require 'telemetry/scriber/defaults'
-require 'telemetry/scriber/lock_helper'
-require 'telemetry/scriber/reader'
+# require 'telemetry/scriber/lock_helper'
+require 'telemetry/scriber/buffer'
+require 'telemetry/scriber/consumer'
 require 'telemetry/scriber/writer'
+require 'telemetry/scriber/publisher'
 
 module Telemetry
   module Scriber
     @databases = []
     @start_time = Time.now
     @last_push = Time.now
+    @tag_location = 0
+    @high_tag = 0
 
     class << self
       include Scriber::Defaults
-      include Scriber::LockHelper
-      attr_accessor :databases
-
       def bootstrap
-        Telemetry::Logger.setup(send_to_amqp: false)
+        Telemetry::Logger.setup(color: true, colorize: true, level: 'info')
+        Telemetry::Logger.log_level = 'info'
         Telemetry::Logger.info "Starting Scriber v#{Telemetry::Scriber::VERSION}"
         Telemetry::Logger.info "Using InfluxDB SSL? #{Telemetry::Scriber::Writer.use_ssl?}"
-        Telemetry::Logger.unknown Telemetry::Scriber::Writer.port
-        Telemetry::Logger.error 'Issues connecting to InfluxDB' unless Telemetry::Scriber::Writer.healthy?
-        Telemetry::Scriber::Reader.exchange
-
-        Telemetry::Logger.info 'bootstrap complete'
-
-        start_reader
-      end
-
-      def start_reader
-        Telemetry::Scriber::Reader.start
-        Telemetry::Scriber::Reader.subscribe!
-      end
-
-      def stop
-        Telemetry::Logger.info 'Scriber is exiting'
-        Telemetry::Scriber::Reader.subscription.cancel
-        Telemetry::Logger.info "Flushing final #{Scriber::Reader.metrics_count.value} metrics.."
-        Telemetry::Scriber.databases.each do |database|
-          data = Telemetry::Scriber.payload(database)
-          next if data.count.zero?
-
-          Telemetry::Scriber::Writer.send_metrics(data.join("\n"), database)
+        if Telemetry::Scriber::Writer.healthy?
+          Telemetry::Logger.info 'Connected to InfluxDB'
+        else
+          Telemetry::Logger.error 'Issues connecting to InfluxDB!'
         end
       end
 
-      def conditional_flush
-        flush if Telemetry::Scriber::Reader.metrics_count.value > 10_000 || @last_push + 10 < Time.now
+      def start_reader
+        Telemetry::Scriber::Consumer.subscribe!
       end
 
       def flush
-        Telemetry::Scriber.databases.each do |database|
-          @local_data = nil
-          Telemetry::Scriber.database_lock(database).with_write_lock do
-            @local_data = Scriber.payload(database)
-            Telemetry::Scriber.reset_payload(database)
-            Telemetry::Scriber::Reader.metrics_count.value = 0
+        Telemetry::Scriber::Buffer.databases.each do |database|
+          if @last_push.to_i <= Time.now.to_i - 100
+            Telemetry::Logger.info 'its been more than 10 seconds since a flush, pusing now'
+          elsif Telemetry::Scriber::Buffer.metric_count(database) < 2_000
+            Telemetry::Logger.debug("skipping #{database} flusb because count is at #{Telemetry::Scriber::Buffer.metric_count(database)}") # rubocop:disable Layout/LineLength
+            next
           end
+
+          results = Telemetry::Scriber::Buffer.payload_grab_and_reset(database)
+          @temp_tag = results[:tag_location]
+          @tag_location = results[:tag_location] if results[:tag_location] > @tag_location
+          @local_data = results[:data]
 
           line_count = @local_data.count
-          next if @local_data.count.zero?
-
-          results = Telemetry::Scriber::Writer.send_metrics(@local_data.join("\n"), database)
-
-          if results.is_a?(Faraday::Response)
-            Telemetry::Logger.info(
-              "Wrote #{line_count} lines to #{database} in #{(results.env[:duration] * 1000).round}ms"
-            )
+          if @local_data.count.zero?
+            @last_push = Time.now
+            next
           end
-          Telemetry::Scriber::Reader.ack!
+
+          write_results = Telemetry::Scriber::Writer.send_metrics(@local_data.join("\n"), database)
+          if write_results.is_a?(Faraday::Response)
+            Telemetry::Logger.info("Wrote #{line_count} lines, #{results[:metric_count]} metrics to #{database} in #{(write_results.env[:duration] * 1000).round}ms") # rubocop:disable Layout/LineLength
+          else
+            Telemetry::Logger.fatal "#{write_results.class}: #{write_results}"
+          end
+
           @last_push = Time.now
+        end
+
+        if @tag_location.positive? && @tag_location > @high_tag
+          Telemetry::Logger.debug 'it was positive and is going to ack'
+          @high_tag = @temp_tag
+          Telemetry::Scriber::Consumer.ack(@temp_tag)
+          true
+        else
+          Telemetry::Logger.debug 'it was negatve and is not going to ack'
+          false
+        end
+      end
+
+      def stop
+        @stopping_at = Time.now.to_i
+        Telemetry::Logger.info 'Scriber is exiting'
+        Telemetry::Scriber::Consumer.cancel!
+        Telemetry::Logger.info 'Flushing final metrics..'
+        until !flush || @stopping_at + 10 < Time.now.to_i
         end
       end
     end
